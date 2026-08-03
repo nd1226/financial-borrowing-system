@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loan-origination-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loan-origination
+  template:
+    metadata:
+      labels:
+        app: loan-origination
+    spec:
+      containers:
+      - name: loan-origination
+        image: loan-origination-service:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 3000
+        env:
+        - name: KAFKA_BROKERS
+          value: "kafka-service:9092"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: loan-origination-service
+spec:
+  selector:
+    app: loan-origination
+  ports:
+    - protocol: TCP
+      port: 3000
+      targetPort: 3000

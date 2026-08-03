@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  - job_name: 'loan-origination-service'
+    static_configs:
+      - targets: ['loan-origination-service:3000']
+
+  - job_name: 'credit-decision-service'
+    static_configs:
+      - targets: ['credit-decision-service:3002']

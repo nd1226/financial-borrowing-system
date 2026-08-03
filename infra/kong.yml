@@ -1,0 +1,15 @@
+_format_version: "3.0"
+
+services:
+  - name: loan-origination-service
+    url: http://loan-origination-service:3000
+    routes:
+      - name: loan-routes
+        paths:
+          - /api/v1/loans
+        strip_path: false
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 60
+          policy: local

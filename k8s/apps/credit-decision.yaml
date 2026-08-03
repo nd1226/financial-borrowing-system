@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: credit-decision-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: credit-decision
+  template:
+    metadata:
+      labels:
+        app: credit-decision
+    spec:
+      containers:
+      - name: credit-decision
+        image: credit-decision-service:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 3002
+        env:
+        - name: KAFKA_BROKERS
+          value: "kafka-service:9092"
+        - name: PARTNER_URL
+          value: "http://partner-mock-service:3001"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: credit-decision-service
+spec:
+  selector:
+    app: credit-decision
+  ports:
+    - protocol: TCP
+      port: 3002
+      targetPort: 3002

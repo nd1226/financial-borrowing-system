@@ -1,0 +1,62 @@
+version: "3.8"
+
+services:
+  zookeeper:
+    image: bitnami/zookeeper:latest
+    ports:
+      - "2181:2181"
+    environment:
+      - ALLOW_ANONYMOUS_LOGIN=yes
+
+  kafka:
+    image: bitnami/kafka:latest
+    ports:
+      - "9092:9092"
+    environment:
+      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
+      - ALLOW_PLAINTEXT_LISTENER=yes
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+    depends_on:
+      - zookeeper
+
+  partner-mock-service:
+    build: ./partner-mock-service
+    ports:
+      - "3001:3001"
+
+  loan-origination-service:
+    build: ./loan-origination-service
+    ports:
+      - "3000:3000"
+    environment:
+      - KAFKA_BROKERS=kafka:9092
+    depends_on:
+      - kafka
+
+  credit-decision-service:
+    build: ./credit-decision-service
+    ports:
+      - "3002:3002"
+    environment:
+      - KAFKA_BROKERS=kafka:9092
+      - PARTNER_URL=http://partner-mock-service:3001
+    depends_on:
+      - kafka
+      - partner-mock-service
+
+  # Prometheus for Observability
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infra/prometheus.yml:/etc/prometheus/prometheus.yml
+
+  # Grafana for Dashboards
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3003:3000"
+    depends_on:
+      - prometheus

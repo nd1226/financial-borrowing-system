@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: partner-mock-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: partner-mock
+  template:
+    metadata:
+      labels:
+        app: partner-mock
+    spec:
+      containers:
+      - name: partner-mock
+        image: partner-mock-service:latest
+        imagePullPolicy: Never # Use local docker image
+        ports:
+        - containerPort: 3001
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: partner-mock-service
+spec:
+  selector:
+    app: partner-mock
+  ports:
+    - protocol: TCP
+      port: 3001
+      targetPort: 3001
