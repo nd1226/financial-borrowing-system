@@ -21,6 +21,12 @@ spec:
         env:
         - name: KAFKA_BROKERS
           value: "kafka-service:9092"
+        - name: KEYCLOAK_URL
+          value: "http://keycloak-service:8080"
+        - name: KEYCLOAK_REALM
+          value: "financial-realm"
+        - name: KEYCLOAK_ENABLED
+          value: "true"
 ---
 apiVersion: v1
 kind: Service

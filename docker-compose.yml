@@ -31,8 +31,12 @@ services:
       - "3000:3000"
     environment:
       - KAFKA_BROKERS=kafka:9092
+      - KEYCLOAK_URL=http://keycloak:8080
+      - KEYCLOAK_REALM=financial-realm
+      - KEYCLOAK_ENABLED=true
     depends_on:
       - kafka
+      - keycloak
 
   credit-decision-service:
     build: ./credit-decision-service
@@ -44,6 +48,18 @@ services:
     depends_on:
       - kafka
       - partner-mock-service
+
+  # Keycloak Identity & Access Management
+  keycloak:
+    image: quay.io/keycloak/keycloak:24.0.0
+    command: start-dev --import-realm
+    environment:
+      - KEYCLOAK_ADMIN=admin
+      - KEYCLOAK_ADMIN_PASSWORD=admin
+    volumes:
+      - ./infra/keycloak/realm-export.json:/opt/keycloak/data/import/realm.json
+    ports:
+      - "8080:8080"
 
   # Prometheus for Observability
   prometheus:

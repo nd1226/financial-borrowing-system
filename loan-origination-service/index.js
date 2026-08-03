@@ -51,8 +51,13 @@ async function initKafka() {
 }
 initKafka();
 
-// Create Loan Application
-app.post('/api/v1/loans', async (req, res) => {
+const { authenticateToken } = require('./middleware/auth');
+
+// Health Check
+app.get('/health', (req, res) => res.send('OK'));
+
+// Create Loan Application (Protected by Keycloak)
+app.post('/api/v1/loans', authenticateToken, async (req, res) => {
   const { amount, term, nationalId, name } = req.body;
   if (!amount || !term || !nationalId) {
     return res.status(400).json({ error: 'Missing required fields' });
@@ -64,7 +69,8 @@ app.post('/api/v1/loans', async (req, res) => {
     amount,
     term,
     nationalId,
-    name,
+    name: name || (req.user ? req.user.name || req.user.preferred_username : 'Unknown'),
+    applicantUsername: req.user ? req.user.preferred_username : null,
     status: 'PENDING',
     createdAt: new Date().toISOString()
   };
@@ -88,12 +94,13 @@ app.post('/api/v1/loans', async (req, res) => {
   res.status(202).json({
     message: 'Loan application received',
     applicationId,
-    status: 'PENDING'
+    status: 'PENDING',
+    createdBy: req.user ? req.user.preferred_username : 'anonymous'
   });
 });
 
-// Check Loan Status
-app.get('/api/v1/loans/:id', (req, res) => {
+// Check Loan Status (Protected by Keycloak)
+app.get('/api/v1/loans/:id', authenticateToken, (req, res) => {
   const application = applications.get(req.params.id);
   if (!application) {
     return res.status(404).json({ error: 'Application not found' });
