@@ -10,6 +10,7 @@ This repository contains the microservices for the Financial Borrowing System, s
 *   **Identity & Access Management (Keycloak)** (Port 8080): OpenID Connect (OIDC) identity provider.
 *   **Message Broker**: Apache Kafka + Zookeeper
 *   **Observability**: Prometheus & Grafana
+*   **Centralized Logging (EFK)**: Elasticsearch + Fluentd + Kibana
 
 ## Keycloak Security Configuration
 
@@ -26,7 +27,7 @@ Keycloak runs pre-configured with the **`financial-realm`** imported automatical
 
 ## Running Locally with Docker Compose
 
-For a quick setup, you can use Docker Compose to run all microservices, Keycloak, Kafka, and Prometheus.
+For a quick setup, you can use Docker Compose to run all microservices, Keycloak, Kafka, Prometheus/Grafana, and EFK.
 
 ```bash
 docker-compose up --build -d
@@ -39,6 +40,16 @@ docker-compose up --build -d
 - Credit Service: `http://localhost:3002`
 - Grafana: `http://localhost:3003`
 - Prometheus: `http://localhost:9090`
+- Kibana: `http://localhost:5601`
+- Elasticsearch: `http://localhost:9200`
+
+### EFK (Local Docker Compose)
+
+Application logs are shipped via the Docker Fluentd logging driver to Fluentd, then indexed into Elasticsearch and visualized in Kibana.
+
+1. Open Kibana: `http://localhost:5601`
+2. Create an index pattern for `docker-*`
+3. Explore logs in Discover
 
 ---
 
@@ -114,10 +125,11 @@ The `k8s/` directory contains Kubernetes deployment and service manifests includ
     docker build -t partner-mock-service:latest ./partner-mock-service
     ```
 
-2.  **Apply Kafka & Keycloak Infrastructure:**
+2.  **Apply Kafka, Keycloak, and EFK Infrastructure:**
     ```bash
     kubectl apply -f k8s/kafka/kafka-zookeeper.yaml
     kubectl apply -f k8s/infra/keycloak.yaml
+  kubectl apply -f k8s/infra/efk.yaml
     ```
 
 3.  **Apply Microservices:**
@@ -126,3 +138,13 @@ The `k8s/` directory contains Kubernetes deployment and service manifests includ
     kubectl apply -f k8s/apps/loan-origination.yaml
     kubectl apply -f k8s/apps/credit-decision.yaml
     ```
+
+4.  **Access Kibana in Kubernetes (port-forward):**
+  ```bash
+  kubectl -n logging port-forward svc/kibana 5601:5601
+  ```
+
+5.  **Access Elasticsearch in Kubernetes (optional):**
+  ```bash
+  kubectl -n logging port-forward svc/elasticsearch 9200:9200
+  ```
