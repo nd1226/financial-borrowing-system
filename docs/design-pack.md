@@ -55,43 +55,43 @@ sequenceDiagram
 
 ---
 
-## 2. EVNICT Partner Integration Table
+## 2. Partner Integration Table
 
 | Field | Value |
 |---|---|
-| **E**vent / API | `GET /api/partner/credit-score` |
-| **V**ersion | v1 (implicit, no versioning on partner) |
-| **N**ame | Credit Bureau Score API |
-| **I**nput | `?nationalId={string}` |
-| **C**ontract | Response: `{ nationalId, score: int(300–850), rating: POOR\|FAIR\|GOOD\|EXCELLENT }` |
-| **T**echnology | HTTP/REST over internal Docker network; synchronous; 5 s timeout; 3 retries with exponential backoff (1 s, 2 s, 4 s) |
+| Event / API | `GET /api/partner/credit-score` |
+| Version | v1 (implicit, no versioning on partner) |
+| Name | Credit Bureau Score API |
+| Input | `?nationalId={string}` |
+| Contract | Response: `{ nationalId, score: int(300–850), rating: POOR\|FAIR\|GOOD\|EXCELLENT }` |
+| Technology | HTTP/REST over internal Docker network; synchronous; 5 s timeout; 3 retries with exponential backoff (1 s, 2 s, 4 s) |
 
 | Field | Value |
 |---|---|
-| **E**vent / API | Kafka topic `LoanApplicationCreated` |
-| **V**ersion | schema v1 |
-| **N**ame | Loan Application Created Event |
-| **I**nput | `{ applicationId, amount, term, nationalId, name, status: PENDING, createdAt }` |
-| **C**ontract | Produced by Loan Origination Service; consumed by Credit Decision Service |
-| **T**echnology | Apache Kafka; JSON payload; `credit-decision-group` consumer group |
+| Event / API | Kafka topic `LoanApplicationCreated` |
+| Version | schema v1 |
+| Name | Loan Application Created Event |
+| Input | `{ applicationId, amount, term, nationalId, name, status: PENDING, createdAt }` |
+| Contract | Produced by Loan Origination Service; consumed by Credit Decision Service |
+| Technology | Apache Kafka; JSON payload; `credit-decision-group` consumer group |
 
 | Field | Value |
 |---|---|
-| **E**vent / API | Kafka topic `CreditDecisionMade` |
-| **V**ersion | schema v1 |
-| **N**ame | Credit Decision Made Event |
-| **I**nput | `{ applicationId, decision: APPROVED\|REJECTED, score, rating, timestamp }` |
-| **C**ontract | Produced by Credit Decision Service; consumed by Loan Origination Service |
-| **T**echnology | Apache Kafka; JSON payload; `loan-origination-group` consumer group |
+| Event / API | Kafka topic `CreditDecisionMade` |
+| Version | schema v1 |
+| Name | Credit Decision Made Event |
+| Input | `{ applicationId, decision: APPROVED\|REJECTED, score, rating, timestamp }` |
+| Contract | Produced by Credit Decision Service; consumed by Loan Origination Service |
+| Technology | Apache Kafka; JSON payload; `loan-origination-group` consumer group |
 
 | Field | Value |
 |---|---|
-| **E**vent / API | Kafka topic `LoanApplication.DLQ` |
-| **V**ersion | schema v1 |
-| **N**ame | Dead Letter Queue — failed credit decisions |
-| **I**nput | `{ applicationId, originalTopic, error, timestamp }` |
-| **C**ontract | Published when partner call fails after all retries |
-| **T**echnology | Apache Kafka; manual consumer / ops tooling for replay |
+| Event / API | Kafka topic `LoanApplication.DLQ` |
+| Version | schema v1 |
+| Name | Dead Letter Queue — failed credit decisions |
+| Input | `{ applicationId, originalTopic, error, timestamp }` |
+| Contract | Published when partner call fails after all retries |
+| Technology | Apache Kafka; manual consumer / ops tooling for replay |
 
 ---
 
