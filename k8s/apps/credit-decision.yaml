@@ -23,6 +23,11 @@ spec:
           value: "kafka-service:9092"
         - name: PARTNER_URL
           value: "http://partner-mock-service:3001"
+        - name: PARTNER_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: partner-api-key-secret
+              key: api-key
 ---
 apiVersion: v1
 kind: Service

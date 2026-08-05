@@ -7,12 +7,25 @@ app.use(express.json());
 app.use(morgan('dev'));
 app.use(cors());
 
+const PARTNER_API_KEY = process.env.PARTNER_API_KEY;
+
+const apiError = (code, message) => ({ code, message });
+
+// Validate internal API key when PARTNER_API_KEY is configured
+function requireApiKey(req, res, next) {
+  if (!PARTNER_API_KEY) return next();
+  if (req.headers['x-api-key'] !== PARTNER_API_KEY) {
+    return res.status(401).json(apiError('UNAUTHORIZED', 'Invalid or missing X-Api-Key'));
+  }
+  next();
+}
+
 // Mock Credit Bureau API
-app.get('/api/partner/credit-score', (req, res) => {
+app.get('/api/partner/credit-score', requireApiKey, (req, res) => {
     const { nationalId } = req.query;
 
     if (!nationalId) {
-        return res.status(400).json({ error: 'nationalId is required' });
+        return res.status(400).json(apiError('VALIDATION_ERROR', 'nationalId is required'));
     }
 
     // Deterministic mock generation based on nationalId length/value for testing

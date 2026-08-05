@@ -13,3 +13,8 @@ services:
         config:
           minute: 60
           policy: local
+      - name: jwt
+        config:
+          key_claim_name: kid
+          claims_to_verify:
+            - exp

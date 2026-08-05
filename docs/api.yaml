@@ -1,0 +1,328 @@
+openapi: 3.0.3
+info:
+  title: Financial Borrowing System API
+  description: |
+    API for the Financial Borrowing System.
+    Authentication is handled via Keycloak (OpenID Connect / OAuth2).
+    Obtain a Bearer token from Keycloak before calling protected endpoints.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8000
+    description: Local via Kong API Gateway
+  - url: http://localhost:3000
+    description: Loan Origination Service (direct)
+  - url: http://localhost:3001
+    description: Partner Mock Service (direct)
+
+tags:
+  - name: Loans
+    description: Loan origination operations
+  - name: Partner
+    description: Credit Bureau partner integration (mock)
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Keycloak JWT obtained from POST /realms/financial-realm/protocol/openid-connect/token
+
+  schemas:
+    LoanApplicationRequest:
+      type: object
+      required:
+        - amount
+        - term
+        - nationalId
+      properties:
+        amount:
+          type: number
+          example: 5000
+          description: Loan amount in local currency
+        term:
+          type: integer
+          example: 12
+          description: Loan term in months
+        nationalId:
+          type: string
+          example: "123456789"
+        name:
+          type: string
+          example: "John Doe"
+
+    LoanApplicationResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          example: "Loan application received"
+        applicationId:
+          type: string
+          format: uuid
+        status:
+          type: string
+          enum: [PENDING, APPROVED, REJECTED]
+        createdBy:
+          type: string
+          example: "john_doe"
+
+    LoanApplicationDetail:
+      allOf:
+        - $ref: '#/components/schemas/LoanApplicationResponse'
+        - type: object
+          properties:
+            amount:
+              type: number
+            term:
+              type: integer
+            nationalId:
+              type: string
+            name:
+              type: string
+            creditScore:
+              type: integer
+              nullable: true
+              description: Populated after credit decision
+            createdAt:
+              type: string
+              format: date-time
+
+    CreditScoreResponse:
+      type: object
+      properties:
+        nationalId:
+          type: string
+        score:
+          type: integer
+          description: Credit score between 300 and 850
+          example: 720
+        rating:
+          type: string
+          enum: [POOR, FAIR, GOOD, EXCELLENT]
+          example: GOOD
+
+    ErrorResponse:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: VALIDATION_ERROR
+          description: Machine-readable error code
+        message:
+          type: string
+          example: Missing required fields
+        details:
+          type: array
+          items:
+            type: string
+          example: ["amount is required"]
+
+    PaginatedLoans:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/LoanApplicationDetail'
+        pagination:
+          type: object
+          properties:
+            page:
+              type: integer
+            limit:
+              type: integer
+            total:
+              type: integer
+            totalPages:
+              type: integer
+
+paths:
+  /api/v1/loans:
+    get:
+      tags: [Loans]
+      summary: List loan applications
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        "200":
+          description: Paginated list of applications
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedLoans'
+        "401":
+          description: Missing or invalid Bearer token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      tags: [Loans]
+      summary: Submit a loan application
+      description: |
+        Creates a new loan application. Publishes a `LoanApplicationCreated` Kafka event
+        which triggers the Credit Decision Service to evaluate the application asynchronously.
+        Supply `Idempotency-Key` to safely retry without creating duplicate applications.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+            format: uuid
+          description: Client-generated UUID; same key returns the original 202 response
+        - name: X-Correlation-ID
+          in: header
+          required: false
+          schema:
+            type: string
+          description: Propagated through all services; generated if absent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoanApplicationRequest'
+            example:
+              amount: 5000
+              term: 12
+              nationalId: "123456789"
+              name: "John Doe"
+      responses:
+        "202":
+          description: Application accepted and queued for credit decision
+          headers:
+            X-Correlation-ID:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanApplicationResponse'
+        "400":
+          description: Missing required fields
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "401":
+          description: Missing or invalid Bearer token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "500":
+          description: Failed to publish Kafka event
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/v1/loans/{applicationId}:
+    get:
+      tags: [Loans]
+      summary: Get loan application status
+      description: Returns the current status of a loan application including credit decision if available.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: applicationId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        "200":
+          description: Application details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoanApplicationDetail'
+        "401":
+          description: Missing or invalid Bearer token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "404":
+          description: Application not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /health:
+    get:
+      tags: [Loans]
+      summary: Health check
+      responses:
+        "200":
+          description: Service is healthy
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: OK
+
+  /api/partner/credit-score:
+    get:
+      tags: [Partner]
+      summary: Get credit score for a national ID
+      description: |
+        Partner Mock Service simulating a Credit Bureau API.
+        Called internally by the Credit Decision Service via `X-Api-Key` header.
+        Not exposed via Kong.
+      parameters:
+        - name: nationalId
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "123456789"
+        - name: X-Api-Key
+          in: header
+          required: true
+          schema:
+            type: string
+          description: Shared internal API key for service-to-service auth
+      responses:
+        "200":
+          description: Credit score and rating
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreditScoreResponse'
+        "400":
+          description: nationalId is required
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        "401":
+          description: Invalid or missing X-Api-Key
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'

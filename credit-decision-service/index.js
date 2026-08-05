@@ -2,12 +2,15 @@ const express = require('express');
 const morgan = require('morgan');
 const axios = require('axios');
 const { Kafka } = require('kafkajs');
+const promClient = require('prom-client');
+promClient.collectDefaultMetrics();
 
 const app = express();
 app.use(morgan('dev'));
 
 // Environment Variables
 const PARTNER_URL = process.env.PARTNER_URL || 'http://localhost:3001';
+const PARTNER_API_KEY = process.env.PARTNER_API_KEY || '';
 const KAFKA_BROKERS = process.env.KAFKA_BROKERS ? process.env.KAFKA_BROKERS.split(',') : ['localhost:9092'];
 
 // Kafka Configuration
@@ -41,46 +44,77 @@ async function initKafka() {
 }
 initKafka();
 
+const PARTNER_TIMEOUT_MS = 5000;
+const MAX_RETRIES = 3;
+
+async function fetchCreditScore(nationalId) {
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await axios.get(`${PARTNER_URL}/api/partner/credit-score`, {
+        params: { nationalId },
+        timeout: PARTNER_TIMEOUT_MS,
+        headers: { ...(PARTNER_API_KEY && { 'X-Api-Key': PARTNER_API_KEY }) }
+      });
+      return response.data;
+    } catch (error) {
+      if (attempt === MAX_RETRIES) throw error;
+      // exponential backoff: 1s, 2s, 4s
+      await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, attempt - 1)));
+      console.warn(`Retry ${attempt}/${MAX_RETRIES} for nationalId ${nationalId}: ${error.message}`);
+    }
+  }
+}
+
+async function publishToDLQ(application, errorMessage) {
+  await producer.send({
+    topic: 'LoanApplication.DLQ',
+    messages: [{
+      value: JSON.stringify({
+        applicationId: application.applicationId,
+        originalTopic: 'LoanApplicationCreated',
+        error: errorMessage,
+        timestamp: new Date().toISOString()
+      })
+    }]
+  });
+  console.error(`Sent applicationId ${application.applicationId} to DLQ: ${errorMessage}`);
+}
+
 async function processApplication(application) {
   try {
     console.log(`Requesting credit score for nationalId: ${application.nationalId}`);
-    // Call Partner Mock Service
-    const response = await axios.get(`${PARTNER_URL}/api/partner/credit-score`, {
-      params: { nationalId: application.nationalId }
-    });
-    
-    const { score, rating } = response.data;
+    const { score, rating } = await fetchCreditScore(application.nationalId);
     console.log(`Received score: ${score} (${rating})`);
 
-    // Simple Decision Logic
-    // E.g., Approve if score > 600, else Reject
     const decision = score > 600 ? 'APPROVED' : 'REJECTED';
 
-    // Publish Decision
     await producer.send({
       topic: 'CreditDecisionMade',
-      messages: [
-        { 
-          value: JSON.stringify({
-            applicationId: application.applicationId,
-            decision,
-            score,
-            rating,
-            timestamp: new Date().toISOString()
-          }) 
-        },
-      ],
+      messages: [{
+        value: JSON.stringify({
+          applicationId: application.applicationId,
+          decision,
+          score,
+          rating,
+          timestamp: new Date().toISOString()
+        })
+      }]
     });
     console.log(`Published CreditDecisionMade for ${application.applicationId} - ${decision}`);
 
   } catch (error) {
     console.error(`Error processing application ${application.applicationId}`, error.message);
-    // In a real system, we'd handle retries, dead letter queues, or mark it as FAILED
+    await publishToDLQ(application, error.message);
   }
 }
 
 // Health check endpoint
 app.get('/health', (req, res) => res.send('OK'));
+
+app.get('/metrics', async (req, res) => {
+  res.set('Content-Type', promClient.register.contentType);
+  res.end(await promClient.register.metrics());
+});
 
 const PORT = process.env.PORT || 3002;
 app.listen(PORT, () => {

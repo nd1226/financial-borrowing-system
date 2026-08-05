@@ -3,14 +3,27 @@ const morgan = require('morgan');
 const cors = require('cors');
 const { Kafka } = require('kafkajs');
 const { v4: uuidv4 } = require('uuid');
+const promClient = require('prom-client');
+promClient.collectDefaultMetrics();
 
 const app = express();
 app.use(express.json());
 app.use(morgan('dev'));
 app.use(cors());
 
-// In-memory "Database"
+// Propagate or generate a correlation ID for every request
+app.use((req, res, next) => {
+  req.correlationId = req.headers['x-correlation-id'] || uuidv4();
+  res.set('X-Correlation-ID', req.correlationId);
+  next();
+});
+
+const apiError = (code, message, details = []) =>
+  ({ code, message, ...(details.length && { details }) });
+
+// In-memory stores
 const applications = new Map();
+const idempotencyStore = new Map(); // idempotency-key → cached response body
 
 // Kafka Configuration
 const kafka = new Kafka({
@@ -56,11 +69,26 @@ const { authenticateToken } = require('./middleware/auth');
 // Health Check
 app.get('/health', (req, res) => res.send('OK'));
 
+app.get('/metrics', async (req, res) => {
+  res.set('Content-Type', promClient.register.contentType);
+  res.end(await promClient.register.metrics());
+});
+
 // Create Loan Application (Protected by Keycloak)
 app.post('/api/v1/loans', authenticateToken, async (req, res) => {
   const { amount, term, nationalId, name } = req.body;
   if (!amount || !term || !nationalId) {
-    return res.status(400).json({ error: 'Missing required fields' });
+    return res.status(400).json(apiError('VALIDATION_ERROR', 'Missing required fields', [
+      ...(!amount ? ['amount is required'] : []),
+      ...(!term ? ['term is required'] : []),
+      ...(!nationalId ? ['nationalId is required'] : [])
+    ]));
+  }
+
+  // Idempotency: return cached response for duplicate keys
+  const idempotencyKey = req.headers['idempotency-key'];
+  if (idempotencyKey && idempotencyStore.has(idempotencyKey)) {
+    return res.status(202).json(idempotencyStore.get(idempotencyKey));
   }
 
   const applicationId = uuidv4();
@@ -88,14 +116,31 @@ app.post('/api/v1/loans', authenticateToken, async (req, res) => {
     console.log(`Published LoanApplicationCreated for ${applicationId}`);
   } catch (error) {
     console.error('Failed to publish event', error);
-    return res.status(500).json({ error: 'Failed to process application' });
+    applications.delete(applicationId);
+    return res.status(500).json(apiError('INTERNAL_ERROR', 'Failed to process application'));
   }
 
-  res.status(202).json({
+  const responseBody = {
     message: 'Loan application received',
     applicationId,
     status: 'PENDING',
     createdBy: req.user ? req.user.preferred_username : 'anonymous'
+  };
+
+  if (idempotencyKey) idempotencyStore.set(idempotencyKey, responseBody);
+
+  res.status(202).json(responseBody);
+});
+
+// List Loan Applications with pagination (Protected by Keycloak)
+app.get('/api/v1/loans', authenticateToken, (req, res) => {
+  const page = Math.max(1, parseInt(req.query.page) || 1);
+  const limit = Math.min(Math.max(1, parseInt(req.query.limit) || 20), 100);
+  const all = Array.from(applications.values());
+  const start = (page - 1) * limit;
+  res.json({
+    data: all.slice(start, start + limit),
+    pagination: { page, limit, total: all.length, totalPages: Math.ceil(all.length / limit) }
   });
 });
 
@@ -103,7 +148,7 @@ app.post('/api/v1/loans', authenticateToken, async (req, res) => {
 app.get('/api/v1/loans/:id', authenticateToken, (req, res) => {
   const application = applications.get(req.params.id);
   if (!application) {
-    return res.status(404).json({ error: 'Application not found' });
+    return res.status(404).json(apiError('NOT_FOUND', `Application ${req.params.id} not found`));
   }
   res.json(application);
 });

@@ -13,6 +13,16 @@ data:
             paths:
               - /api/v1/loans
             strip_path: false
+        plugins:
+          - name: rate-limiting
+            config:
+              minute: 60
+              policy: local
+          - name: jwt
+            config:
+              key_claim_name: kid
+              claims_to_verify:
+                - exp
 ---
 apiVersion: apps/v1
 kind: Deployment
